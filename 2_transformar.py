@@ -11,16 +11,19 @@ from decimal import Decimal, InvalidOperation
 from banco import conectar, executar, inserir_em_lote
 
 
-#define quantos registros serão processados por vez
+#Quantidade de registros que serão processados por vez
 TAMANHO_LOTE = 5000
+
+#Formato utilizado nas datas dos arquivos CSV
+FORMATO_DATA = "%d/%m/%Y"
 
 
 def limpar_texto(valor):
     """
-    Remove espaços antes e depois do texto.
+    Remove espaços antes e depois dos textos.
 
-    Campos vazios são convertidos para None, que representa
-    NULL no PostgreSQL.
+    Quando o campo estiver vazio retorna None para que o PostgreSQL
+    armazene o valor como NULL
     """
 
     if valor is None:
@@ -33,10 +36,7 @@ def limpar_texto(valor):
 
 def converter_decimal(valor):
     """
-    Converte valores no formato brasileiro para Decimal.
-
-    Exemplo:
-    "1.272,97" será convertido para Decimal("1272.97").
+    Converte valores no formato brasileiro para decimal 
     """
 
     valor = limpar_texto(valor)
@@ -44,10 +44,10 @@ def converter_decimal(valor):
     if valor is None:
         return None
 
-    # Remove símbolo de moeda e espaços.
+    #Retira o simbolo da moeda e os espaços
     valor = valor.replace("R$", "").replace(" ", "")
 
-    # Remove separador de milhar e ajusta o separador decimal.
+    # Retira o ponto de milhar e troca a vírgula decimal por ponto.
     valor = valor.replace(".", "").replace(",", ".")
 
     try:
@@ -61,7 +61,9 @@ def converter_decimal(valor):
 
 def converter_data(valor):
     """
-    Converte uma data DD/MM/AAAA para o tipo date do Python.
+    Converte a data que veio como texto para o formato de data do Python
+
+    Quando o campo estiver vazio retorna None
     """
 
     valor = limpar_texto(valor)
@@ -70,7 +72,7 @@ def converter_data(valor):
         return None
 
     try:
-        return datetime.strptime(valor, "%d/%m/%Y").date()
+        return datetime.strptime(valor, FORMATO_DATA).date()
 
     except ValueError as erro:
         raise ValueError(
@@ -80,7 +82,9 @@ def converter_data(valor):
 
 def converter_inteiro(valor):
     """
-    Converte um texto para número inteiro.
+    Converte um valor de texto para número inteiro.
+
+    Essa função é usada na sequência dos trechos.
     """
 
     valor = limpar_texto(valor)
@@ -99,11 +103,13 @@ def converter_inteiro(valor):
 
 def transformar_viagens(conexao):
     """
-    Converte os registros da raw_viagem e os insere na silver_viagem.
+    Lê os registros da raw_viagem, faz as conversões necessárias
+    e insere os resultados na silver_viagem.
 
     Também calcula o valor total e a duração de cada viagem.
     """
 
+    #consulta os campos da tabela Raw que serão usados na Silver
     sql_select = """
         SELECT
             id_viagem,
@@ -125,6 +131,7 @@ def transformar_viagens(conexao):
         FROM public.raw_viagem;
     """
 
+    #comando utilizado para inserir os dados tratados na Silver
     sql_insert = """
         INSERT INTO public.silver_viagem (
             id_viagem,
@@ -158,6 +165,7 @@ def transformar_viagens(conexao):
 
     total_inserido = 0
 
+    #repete o processo enquanto ainda existirem registros na Raw
     while True:
         registros = cursor.fetchmany(TAMANHO_LOTE)
 
@@ -186,21 +194,23 @@ def transformar_viagens(conexao):
                 valor_outros_texto,
             ) = registro
 
+            #converte as datas que estavam armazenadas como texto
             data_inicio = converter_data(data_inicio_texto)
             data_fim = converter_data(data_fim_texto)
 
+            # Converte os valores monetários para Decimal.
             valor_diarias = converter_decimal(valor_diarias_texto)
             valor_passagens = converter_decimal(valor_passagens_texto)
             valor_devolucao = converter_decimal(valor_devolucao_texto)
             valor_outros = converter_decimal(valor_outros_texto)
 
-            # Nos cálculos, campos vazios são considerados como zero.
+            # Para realizar o cálculo, campos vazios são considerados zero.
             total_diarias = valor_diarias or Decimal("0")
             total_passagens = valor_passagens or Decimal("0")
             total_devolucao = valor_devolucao or Decimal("0")
             total_outros = valor_outros or Decimal("0")
 
-            # O valor devolvido é descontado do custo da viagem.
+            #soma os gastos e desconta o valor devolvido
             valor_total = (
                 total_diarias
                 + total_passagens
@@ -208,12 +218,13 @@ def transformar_viagens(conexao):
                 - total_devolucao
             )
 
-            # A duração inclui o primeiro e o último dia.
+            #calcula a duração incluindo o primeiro e o ultimo dia
             if data_inicio is not None and data_fim is not None:
                 duracao_dias = (data_fim - data_inicio).days + 1
             else:
                 duracao_dias = None
 
+            #organiza os valores na mesma ordem das colunas do INSERT
             linha_tratada = (
                 limpar_texto(id_viagem),
                 limpar_texto(num_proposta),
@@ -237,6 +248,7 @@ def transformar_viagens(conexao):
 
             lote.append(linha_tratada)
 
+        #insere o lote tratado no PostgreSQL
         inserir_em_lote(conexao, sql_insert, lote)
         total_inserido += len(lote)
 
