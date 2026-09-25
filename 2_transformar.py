@@ -198,13 +198,13 @@ def transformar_viagens(conexao):
             data_inicio = converter_data(data_inicio_texto)
             data_fim = converter_data(data_fim_texto)
 
-            # Converte os valores monetários para Decimal.
+            #converte os valores que estão em moeda para decimal
             valor_diarias = converter_decimal(valor_diarias_texto)
             valor_passagens = converter_decimal(valor_passagens_texto)
             valor_devolucao = converter_decimal(valor_devolucao_texto)
             valor_outros = converter_decimal(valor_outros_texto)
 
-            # Para realizar o cálculo, campos vazios são considerados zero.
+            #para realizar o cálculo os campos vazios são considerados zero
             total_diarias = valor_diarias or Decimal("0")
             total_passagens = valor_passagens or Decimal("0")
             total_devolucao = valor_devolucao or Decimal("0")
@@ -262,3 +262,342 @@ def transformar_viagens(conexao):
     print(
         f"silver_viagem: {total_inserido} registros inseridos.      "
     )
+    
+
+def transformar_pagamentos(conexao):
+    """
+    Lê os pagamentos da camada Raw, converte os valores e insere
+    os registros tratados na silver_pagamento
+    """
+
+    #o JOIN seleciona apenas pagamentos ligados a viagens
+    #existentes na tabela silver_viagem
+    sql_select = """
+        SELECT
+            rp.id_viagem,
+            rp.num_proposta,
+            rp.nome_orgao_pagador,
+            rp.nome_ug_pagadora,
+            rp.tipo_pagamento,
+            rp.valor
+        FROM public.raw_pagamento AS rp
+        INNER JOIN public.silver_viagem AS sv
+            ON sv.id_viagem = TRIM(rp.id_viagem);
+    """
+
+    sql_insert = """
+        INSERT INTO public.silver_pagamento (
+            id_viagem,
+            num_proposta,
+            nome_orgao_pagador,
+            nome_ug_pagadora,
+            tipo_pagamento,
+            valor
+        )
+        VALUES (%s, %s, %s, %s, %s, %s);
+    """
+
+    cursor = conexao.cursor()
+    cursor.execute(sql_select)
+
+    total_inserido = 0
+
+    while True:
+        registros = cursor.fetchmany(TAMANHO_LOTE)
+
+        if not registros:
+            break
+
+        lote = []
+
+        for registro in registros:
+            (
+                id_viagem,
+                num_proposta,
+                nome_orgao_pagador,
+                nome_ug_pagadora,
+                tipo_pagamento,
+                valor_texto,
+            ) = registro
+
+            linha_tratada = (
+                limpar_texto(id_viagem),
+                limpar_texto(num_proposta),
+                limpar_texto(nome_orgao_pagador),
+                limpar_texto(nome_ug_pagadora),
+                limpar_texto(tipo_pagamento),
+                converter_decimal(valor_texto),
+            )
+
+            lote.append(linha_tratada)
+
+        inserir_em_lote(conexao, sql_insert, lote)
+        total_inserido += len(lote)
+
+        print(
+            f"silver_pagamento: {total_inserido} registros processados.",
+            end="\r",
+        )
+
+    cursor.close()
+
+    print(
+        f"silver_pagamento: {total_inserido} registros inseridos.      "
+    )
+
+
+def transformar_passagens(conexao):
+    """
+    Lê as passagens da camada Raw converte os valores e a data
+    de emissão e insere os registros na silver_passagem
+    """
+
+    #o JOIN seleciona somente passagens ligadas a viagens
+    #existentes na tabela silver_viagem
+    sql_select = """
+        SELECT
+            rp.id_viagem,
+            rp.meio_transporte,
+            rp.pais_origem_ida,
+            rp.uf_origem_ida,
+            rp.cidade_origem_ida,
+            rp.pais_destino_ida,
+            rp.uf_destino_ida,
+            rp.cidade_destino_ida,
+            rp.valor_passagem,
+            rp.taxa_servico,
+            rp.data_emissao
+        FROM public.raw_passagem AS rp
+        INNER JOIN public.silver_viagem AS sv
+            ON sv.id_viagem = TRIM(rp.id_viagem);
+    """
+
+    sql_insert = """
+        INSERT INTO public.silver_passagem (
+            id_viagem,
+            meio_transporte,
+            pais_origem_ida,
+            uf_origem_ida,
+            cidade_origem_ida,
+            pais_destino_ida,
+            uf_destino_ida,
+            cidade_destino_ida,
+            valor_passagem,
+            taxa_servico,
+            data_emissao
+        )
+        VALUES (
+            %s, %s, %s, %s, %s, %s,
+            %s, %s, %s, %s, %s
+        );
+    """
+
+    cursor = conexao.cursor()
+    cursor.execute(sql_select)
+
+    total_inserido = 0
+
+    while True:
+        registros = cursor.fetchmany(TAMANHO_LOTE)
+
+        if not registros:
+            break
+
+        lote = []
+
+        for registro in registros:
+            (
+                id_viagem,
+                meio_transporte,
+                pais_origem_ida,
+                uf_origem_ida,
+                cidade_origem_ida,
+                pais_destino_ida,
+                uf_destino_ida,
+                cidade_destino_ida,
+                valor_passagem_texto,
+                taxa_servico_texto,
+                data_emissao_texto,
+            ) = registro
+
+            linha_tratada = (
+                limpar_texto(id_viagem),
+                limpar_texto(meio_transporte),
+                limpar_texto(pais_origem_ida),
+                limpar_texto(uf_origem_ida),
+                limpar_texto(cidade_origem_ida),
+                limpar_texto(pais_destino_ida),
+                limpar_texto(uf_destino_ida),
+                limpar_texto(cidade_destino_ida),
+                converter_decimal(valor_passagem_texto),
+                converter_decimal(taxa_servico_texto),
+                converter_data(data_emissao_texto),
+            )
+
+            lote.append(linha_tratada)
+
+        inserir_em_lote(conexao, sql_insert, lote)
+        total_inserido += len(lote)
+
+        print(
+            f"silver_passagem: {total_inserido} registros processados.",
+            end="\r",
+        )
+
+    cursor.close()
+
+    print(
+        f"silver_passagem: {total_inserido} registros inseridos.      "
+    )
+
+
+def transformar_trechos(conexao):
+    """
+    Converte os trechos da camada Raw e os insere na Silver
+
+    A sequencia é convertida para inteiro, as datas para date e
+    o número de diárias para decimal
+    """
+
+    sql_select = """
+        SELECT
+            rt.id_viagem,
+            rt.sequencia_trecho,
+            rt.origem_data,
+            rt.origem_uf,
+            rt.origem_cidade,
+            rt.destino_data,
+            rt.destino_uf,
+            rt.destino_cidade,
+            rt.meio_transporte,
+            rt.numero_diarias
+        FROM public.raw_trecho AS rt
+        INNER JOIN public.silver_viagem AS sv
+            ON sv.id_viagem = TRIM(rt.id_viagem);
+    """
+
+    sql_insert = """
+        INSERT INTO public.silver_trecho (
+            id_viagem,
+            sequencia_trecho,
+            origem_data,
+            origem_uf,
+            origem_cidade,
+            destino_data,
+            destino_uf,
+            destino_cidade,
+            meio_transporte,
+            numero_diarias
+        )
+        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s);
+    """
+
+    cursor = conexao.cursor()
+    cursor.execute(sql_select)
+
+    total_inserido = 0
+
+    while True:
+        registros = cursor.fetchmany(TAMANHO_LOTE)
+
+        if not registros:
+            break
+
+        lote = []
+
+        for registro in registros:
+            (
+                id_viagem,
+                sequencia_trecho,
+                origem_data_texto,
+                origem_uf,
+                origem_cidade,
+                destino_data_texto,
+                destino_uf,
+                destino_cidade,
+                meio_transporte,
+                numero_diarias_texto,
+            ) = registro
+
+            linha_tratada = (
+                limpar_texto(id_viagem),
+                converter_inteiro(sequencia_trecho),
+                converter_data(origem_data_texto),
+                limpar_texto(origem_uf),
+                limpar_texto(origem_cidade),
+                converter_data(destino_data_texto),
+                limpar_texto(destino_uf),
+                limpar_texto(destino_cidade),
+                limpar_texto(meio_transporte),
+                converter_decimal(numero_diarias_texto),
+            )
+
+            lote.append(linha_tratada)
+
+        inserir_em_lote(conexao, sql_insert, lote)
+        total_inserido += len(lote)
+
+        print(
+            f"silver_trecho: {total_inserido} registros processados.",
+            end="\r",
+        )
+
+    cursor.close()
+
+    print(
+        f"silver_trecho: {total_inserido} registros inseridos.      "
+    )
+
+
+def main():
+    """
+    Executa a transformação completa da camada Raw para Silver.
+    """
+
+    conexao = None
+
+    try:
+        print("Iniciando a transformação da camada Silver...")
+
+        conexao = conectar()
+
+        #esvazia todas as tabelas Silver e reinicia os IDs automáticos
+        #as quatro tabelas são truncadas juntas por causa das chaves
+        #estrangeiras existentes entre elas
+        executar(
+            conexao,
+            """
+            TRUNCATE TABLE
+                public.silver_pagamento,
+                public.silver_passagem,
+                public.silver_trecho,
+                public.silver_viagem
+            RESTART IDENTITY;
+            """,
+        )
+
+        #as viagens são carregadas primeiro porque as outras tabelas
+        #dependem delas através da chave estrangeira
+        transformar_viagens(conexao)
+
+        #as tabelas abaixo possuem chave estrangeira para silver_viagem
+        transformar_pagamentos(conexao)
+        transformar_passagens(conexao)
+        transformar_trechos(conexao)
+
+        print("Transformação da camada Silver concluída com sucesso.")
+
+    except Exception as erro:
+        if conexao is not None:
+            conexao.rollback()
+
+        print(f"Erro durante a transformação: {erro}")
+
+    finally:
+        if conexao is not None:
+            conexao.close()
+            print("Conexão com o PostgreSQL encerrada.")
+
+
+if __name__ == "__main__":
+    main()
