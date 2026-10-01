@@ -1,0 +1,15 @@
+#manipulação e análise dos dados
+pandas
+
+#criação dos gráficos
+matplotlib
+
+#conexão com o postgresql
+psycopg2-binary
+
+#download automático do dataset
+requests
+
+#execução do notebook de análise
+jupyter
+ipykernel
