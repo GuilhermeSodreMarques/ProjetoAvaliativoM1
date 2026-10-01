@@ -1,0 +1,20 @@
+# Credenciais do banco
+.env
+
+# Dados baixados
+dataset/
+*.zip
+
+# Arquivos temporários do Python
+__pycache__/
+*.pyc
+
+# Ambiente virtual
+venv/
+.venv/
+
+# Arquivos temporários do Jupyter
+.ipynb_checkpoints/
+
+# Configurações do VS Code
+.vscode/
